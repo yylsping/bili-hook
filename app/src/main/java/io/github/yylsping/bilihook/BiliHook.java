@@ -129,9 +129,11 @@ public final class BiliHook extends XposedModule {
             Context context, ClassLoader classLoader, HostVersion version) {
         if (version == HostVersion.BILI_7_42_0) {
             Bili742Hooks.install(context, classLoader);
+            if (BuildConfig.DEBUG) HfrDebugProbe.install(classLoader, version);
             return;
         }
         installHooks740(context, classLoader);
+        if (BuildConfig.DEBUG) HfrDebugProbe.install(classLoader, version);
     }
 
     /* JADX INFO: Access modifiers changed from: private */

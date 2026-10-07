@@ -39,6 +39,10 @@
 
 测试 APK 输出到 `app/build/outputs/apk/debug/`。面向普通用户的已签名版本请从 GitHub Releases 下载。
 
+## 高帧率研究记录
+
+当前研究区分服务端流、原生打开的 URL、解码和实际呈现。目标样本在本次旧版环境中取得的是声明为 30.303fps 的 1080P 流，尚未实现目标 4K120 播放修复。参见[调查报告](investigation-report.md)、[回归覆盖](regression-results.md)和[脱敏证据](debug-evidence/README.md)。研究观察器仅编入 DEBUG。
+
 ## 相关项目
 
 - [BiliPartFix](https://github.com/yylsping/bili-part-fix)：面向哔哩哔哩 7.4.0 和 7.42.0，负责旧客户端的分 P 播放、动态评论、图文评论、EVA3/Opus 专栏和小站图文等兼容性修复。
