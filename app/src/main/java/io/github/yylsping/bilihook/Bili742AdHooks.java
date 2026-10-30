@@ -27,7 +27,9 @@ final class Bili742AdHooks {
         count += installFeature("home-feed-brpc-cm", unavailable,
                 () -> hookHomeFeedBrpc(classLoader));
         count += installFeature("search-cm", unavailable,
-                () -> hookSearch(classLoader));
+                () -> hookSearch(classLoader, "com.bilibili.search"));
+        count += installFeature("search2-cm", unavailable,
+                () -> hookSearch(classLoader, "com.bilibili.search2"));
         return count;
     }
 
@@ -191,11 +193,11 @@ final class Bili742AdHooks {
         return 1;
     }
 
-    private static int hookSearch(ClassLoader classLoader) throws Throwable {
+    private static int hookSearch(ClassLoader classLoader, String packageName) throws Throwable {
         Class<?> converterClass = Reflect.findClass(
-                "com.bilibili.search.utils.BrpcSearchResultConverterKt", classLoader);
+                packageName + ".utils.BrpcSearchResultConverterKt", classLoader);
         Class<?> resultClass = Reflect.findClass(
-                "com.bilibili.search.api.SearchResultAll", classLoader);
+                packageName + ".api.SearchResultAll", classLoader);
         Class<?> itemClass = Reflect.findClass(
                 "com.bapis.bilibili.polymer.app.search.v1.Item", classLoader);
         final Method getCardItemCase = Reflect.findMethodExact(itemClass, "getCardItemCase");
@@ -205,12 +207,20 @@ final class Bili742AdHooks {
                     protected void beforeHookedMethod(HookRuntime.HookParam param) {
                         Object source = param.getArg(0);
                         if (!(source instanceof List)) return;
-                        List<Object> filtered = filter((List<?>) source,
-                                item -> enumName(item, getCardItemCase, "CM"));
-                        if (filtered != null) param.setArg(0, filtered);
+                        List<Object> filtered = filterSearchCards((List<?>) source, getCardItemCase);
+                        if (filtered != null) {
+                            if (BuildConfig.DEBUG) HookRuntime.log("7.42.0 " + packageName
+                                    + " removed CM=" + (((List<?>) source).size() - filtered.size()));
+                            param.setArg(0, filtered);
+                        }
                     }
                 });
         return 1;
+    }
+
+    /** Both shipped search stacks use the same protobuf oneof; ordinary AV cards stay intact. */
+    static List<Object> filterSearchCards(List<?> source, Method getCardItemCase) {
+        return filter(source, item -> enumName(item, getCardItemCase, "CM"));
     }
 
     static boolean isAdEnumName(String name) {

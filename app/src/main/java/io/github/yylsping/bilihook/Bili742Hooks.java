@@ -34,6 +34,7 @@ final class Bili742Hooks {
     private static final ThreadLocal<PremiumQualityState.Snapshot> VIP_GATE =
             new ThreadLocal<>();
     private static final QualityDecisionScope DECISION_SCOPE = new QualityDecisionScope();
+    private static final DownloadQualityScope DOWNLOAD_SCOPE = new DownloadQualityScope();
     private static volatile Context accountsContext;
     private static volatile Method accountsGetMethod;
     private static volatile Object accountsInstance;
@@ -61,6 +62,14 @@ final class Bili742Hooks {
                 "ugc", UGC_QUALITY_SERVICE, "N0", "e3", false, "i6", "h"), classLoader, unavailable);
         hookCount += hookQualityService(new QualityServiceSpec(
                 "pgc", PGC_QUALITY_SERVICE, "S1", "B1", true, "Z6", "i"), classLoader, unavailable);
+        for (String pane : new String[]{"download.v", "downloadv2.w"}) {
+            if (hookDownloadGate(classLoader, pane)) hookCount++;
+            else unavailable.add(pane + "-quality-gate");
+        }
+        for (boolean listModel : new boolean[]{true, false}) {
+            if (hookCachedVideoAccess(classLoader, listModel)) hookCount++;
+            else unavailable.add(listModel ? "cached-video-list" : "cached-video-entry");
+        }
 
         List<RequestBuilderStatus.Result> builders = inspectRequestBuilders(classLoader);
         for (String missing : RequestBuilderStatus.missingRequired(builders)) {
@@ -123,9 +132,11 @@ final class Bili742Hooks {
                         protected void afterHookedMethod(HookRuntime.HookParam param) {
                             PremiumQualityState.Snapshot transaction = VIP_GATE.get();
                             boolean decisionScope = DECISION_SCOPE.isActive();
-                            if ((transaction != null || decisionScope) && isLoggedIn()) {
+                            boolean downloadScope = DOWNLOAD_SCOPE.isActive();
+                            if ((transaction != null || decisionScope || downloadScope) && isLoggedIn()) {
                                 debug("scoped account VIP " + describe(transaction)
                                         + ", decisionScope=" + decisionScope
+                                        + ", downloadScope=" + downloadScope
                                         + ", original=" + param.getResult());
                                 param.setResult(true);
                             }
@@ -134,6 +145,89 @@ final class Bili742Hooks {
             return true;
         } catch (Throwable error) {
             HookRuntime.log("7.42.0 scoped account VIP hook unavailable", error);
+            return false;
+        }
+    }
+
+    /**
+     * Only the native UGC download pane's synchronous submission may authorize video qn.
+     * The pane still checks login, network, frozen membership, warnings and download rights;
+     * its native downloader/resolver retains the selected qn and the server's real response.
+     */
+    private static boolean hookDownloadGate(ClassLoader loader, String pane) {
+        try {
+            Class<?> type = Reflect.findClass("tv.danmaku.bili.ui.videodownload." + pane, loader);
+            if (type.getDeclaredField("r").getType() != Integer.TYPE
+                    || type.getDeclaredField("s").getType() != Boolean.TYPE) {
+                throw new NoSuchFieldException("download quality/audio ABI");
+            }
+            Reflect.findAndHookMethod(type, "e0", List.class, new HookRuntime.Callback() {
+                @Override
+                protected void beforeHookedMethod(HookRuntime.HookParam param) {
+                    int quality = 0;
+                    boolean audioOnly = true;
+                    try {
+                        quality = Reflect.getIntField(param.thisObject, "r");
+                        audioOnly = (Boolean) Reflect.getObjectField(param.thisObject, "s");
+                    } catch (Throwable ignored) {
+                        // Push an inactive frame on ABI/read failure, so nesting stays balanced.
+                        quality = 0;
+                    }
+                    Object selected = param.getArg(0);
+                    boolean hasSelection = selected instanceof List && !((List<?>) selected).isEmpty();
+                    boolean loggedIn = hasSelection && isLoggedIn();
+                    if (DownloadQualityScope.shouldGrant(loggedIn, quality, audioOnly)) {
+                        debug(pane + " video download gate, qn=" + quality);
+                    }
+                    // Enter last: a diagnostic failure must never leave an unbalanced frame.
+                    DOWNLOAD_SCOPE.enter(loggedIn, quality, audioOnly);
+                }
+
+                @Override
+                protected void afterHookedMethod(HookRuntime.HookParam param) {
+                    DOWNLOAD_SCOPE.exit();
+                }
+            });
+            return true;
+        } catch (Throwable error) {
+            HookRuntime.log("7.42.0 " + pane + " download gate unavailable", error);
+            return false;
+        }
+    }
+
+    /** Restore only the UGC premium-video branch of the cached entry's local playability query. */
+    private static boolean hookCachedVideoAccess(ClassLoader loader, boolean listModel) {
+        String name = listModel ? "com.bilibili.offline.c"
+                : "com.bilibili.videodownloader.model.VideoDownloadAVPageEntry";
+        try {
+            Class<?> type = Reflect.findClass(name, loader);
+            Class<?> page = Reflect.findClass("com.bilibili.videodownloader.model.av.Page", loader);
+            Class<?> drama = Reflect.findClass("tv.danmaku.bili.ui.offline.drama.DramaVideo", loader);
+            Reflect.findAndHookMethod(type, "h", new HookRuntime.Callback() {
+                @Override
+                protected void afterHookedMethod(HookRuntime.HookParam param) throws Throwable {
+                    if (!Boolean.FALSE.equals(param.getResult()) || !isLoggedIn()) return;
+                    Object entry = param.thisObject;
+                    Object content = Reflect.getObjectField(entry, listModel ? "l" : "x");
+                    boolean ugc = page.isInstance(content) || (listModel && drama.isInstance(content));
+                    if (!ugc) return;
+                    int quality;
+                    try {
+                        quality = listModel ? Reflect.getIntField(entry, "q")
+                                : Integer.parseInt((String) Reflect.getObjectField(entry, "mTypeTag"));
+                    } catch (NumberFormatException ignored) {
+                        return;
+                    }
+                    int audio = Reflect.getIntField(entry, listModel ? "r" : "mAudioQuality");
+                    if (DownloadQualityScope.canUseCachedVideo(true, ugc, quality, audio)) {
+                        debug(name + " cached UGC video access, qn=" + quality);
+                        param.setResult(true);
+                    }
+                }
+            });
+            return true;
+        } catch (Throwable error) {
+            HookRuntime.log("7.42.0 cached video access unavailable: " + name, error);
             return false;
         }
     }

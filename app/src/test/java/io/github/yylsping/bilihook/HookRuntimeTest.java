@@ -3,6 +3,8 @@ package io.github.yylsping.bilihook;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import java.lang.reflect.Executable;
 import java.lang.reflect.InvocationTargetException;
@@ -112,6 +114,30 @@ public final class HookRuntimeTest {
             return;
         }
         throw new AssertionError("original throwable was swallowed");
+    }
+
+    @Test
+    public void failedNativeDownloadStillClosesVipScopeAndPreservesException() throws Throwable {
+        DownloadQualityScope scope = new DownloadQualityScope();
+        RuntimeException failure = new RuntimeException("download failed");
+        FakeChain chain = new FakeChain("pane", new Object[0], null);
+        chain.failure = failure;
+        try {
+            intercept(chain, new HookRuntime.Callback() {
+                @Override protected void beforeHookedMethod(HookRuntime.HookParam p) {
+                    scope.enter(true, 120, false);
+                }
+                @Override protected void afterHookedMethod(HookRuntime.HookParam p) {
+                    assertTrue(scope.isActive());
+                    scope.exit();
+                }
+            });
+        } catch (Throwable caught) {
+            assertSame(failure, caught);
+            assertFalse(scope.isActive());
+            return;
+        }
+        throw new AssertionError("native failure was swallowed");
     }
 
     @Test
