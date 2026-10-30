@@ -25,6 +25,7 @@ keystore.properties
 !/README.md
 
 # Local release artifacts
+history-apks/
 .debug/
 *.apk
 *.aab

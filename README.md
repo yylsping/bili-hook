@@ -17,7 +17,7 @@
 | 目标应用 | 哔哩哔哩 Android 7.4.0（7040300）或 7.42.0（7420400） |
 | Android | 8.0（API 26）及以上 |
 | 框架 | 支持 libxposed Modern API 102 的 LSPosed |
-| 模块版本 | 1.7.0（versionCode 13） |
+| 模块版本 | 1.8.0（versionCode 14） |
 
 该模块依赖目标应用的内部类与方法签名，只会对上表两个精确版本安装业务 Hook，不支持其他 7.x 版本。
 
